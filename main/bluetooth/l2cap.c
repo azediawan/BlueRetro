@@ -236,6 +236,10 @@ void bt_l2cap_sig_hdlr(struct bt_dev *device, struct bt_hci_pkt *bt_hci_acl_pkt)
                     bt_l2cap_cmd_conf_req(device->acl_handle, get_tx_ident(), device->intr_chan.dcid);
                 }
             }
+            else {
+                printf("# dev: %ld conn refused scid: 0x%04X result: 0x%04X status: 0x%04X\n",
+                    device->ids.id, conn_rsp->scid, conn_rsp->result, conn_rsp->status);
+            }
             break;
         }
         case BT_L2CAP_CONF_REQ:

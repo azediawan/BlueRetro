@@ -114,7 +114,11 @@ static void bt_hid_cmd_ps5_trigger_init(struct bt_dev *device) {
 static void bt_hid_ps5_init_callback(void *arg) {
     struct bt_dev *device = (struct bt_dev *)arg;
 
-    if (device->ids.report_type != BT_HIDP_PS4_STATUS) {
+    /* Only speak DualSense to a device we positively identified as one, either by
+     * name or by an actual 0x31 input report. Blindly sending PS5 output reports to
+     * a device that merely failed to answer as a DS4 kills off-spec DS4 clones.
+     */
+    if (device->ids.subtype == BT_PS5_DS) {
         struct bt_data *bt_data = &bt_adapter.data[device->ids.id];
         struct bt_hidp_ps5_set_conf *set_conf = (struct bt_hidp_ps5_set_conf *)bt_data->base.output;
 
