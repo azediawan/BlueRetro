@@ -68,3 +68,8 @@ __pycache__/
 trace/
 **/.DS_Store
 
+
+# Local-only: wiki clone e traces de debug
+tools/wiki/
+br_debug_trace*.bin
+*.btsnoop
