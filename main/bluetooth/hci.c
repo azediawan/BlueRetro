@@ -1504,9 +1504,15 @@ void bt_hci_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
                     printf("# dev: %ld Pairing done\n", device->ids.id);
                     if (!atomic_test_bit(&device->flags, BT_DEV_PAGE)) {
                         if (atomic_test_bit(&device->flags, BT_DEV_ENCRYPTION)) {
+                            /* Open the HID channel from BT_HCI_EVT_ENCRYPT_CHANGE instead.
+                             * Devices enforcing Security Mode 4 refuse the L2CAP connection
+                             * with SEC_BLOCK when it races ahead of encryption setup.
+                             */
                             bt_hci_cmd_set_conn_encrypt(&device->acl_handle);
                         }
-                        bt_l2cap_cmd_hid_ctrl_conn_req(device);
+                        else {
+                            bt_l2cap_cmd_hid_ctrl_conn_req(device);
+                        }
                     }
                 }
             }
@@ -1578,6 +1584,10 @@ void bt_hci_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
                 }
                 else if (atomic_test_bit(&device->flags, BT_DEV_IS_BLE)) {
                     bt_att_hid_init(device);
+                }
+                else if (!atomic_test_bit(&device->flags, BT_DEV_PAGE)) {
+                    /* Link is encrypted now, safe to open the HID control channel. */
+                    bt_l2cap_cmd_hid_ctrl_conn_req(device);
                 }
             }
             else {
