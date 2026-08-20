@@ -19,6 +19,7 @@
 #include "adapter/gameid.h"
 #include "system/manager.h"
 #include "system/fs.h"
+#include "mon.h"
 
 #define ATT_MAX_LEN 512
 #define BR_ABI_VER 2
@@ -702,10 +703,11 @@ void bt_att_cfg_hdlr(struct bt_dev *device, struct bt_hci_pkt *bt_hci_acl_pkt, u
             uint32_t att_len = len - (BT_HCI_H4_HDR_SIZE + BT_HCI_ACL_HDR_SIZE + sizeof(struct bt_l2cap_hdr) + sizeof(struct bt_att_hdr));
             uint32_t data_len = att_len - sizeof(wr_req->handle);
 
-            /* Disable debug tracing */
-            if (config.global_cfg.banksel == CONFIG_BANKSEL_DBG) {
-                config.global_cfg.banksel = 0xFF;
-            }
+            /* Disable debug tracing for the rest of this boot. Runtime only: writing
+             * 0xFF into banksel here used to be persisted by any later config_update(),
+             * which silently turned debug mode off for good.
+             */
+            bt_mon_pause();
 
             printf("# BT_ATT_OP_WRITE_REQ len: %ld\n", data_len);
             switch (wr_req->handle) {

@@ -268,7 +268,18 @@ void bt_hid_ps_hdlr(struct bt_dev *device, struct bt_hci_pkt *bt_hci_acl_pkt, ui
                     bt_host_bridge(device, bt_hci_acl_pkt->hidp_hdr.protocol, bt_hci_acl_pkt->hidp_data, hidp_data_len);
 #endif
                     break;
+                default:
+                    printf("# %s unhandled report: 0x%02X\n", __FUNCTION__,
+                        bt_hci_acl_pkt->hidp_hdr.protocol);
+                    break;
             }
+            break;
+        default:
+            /* HIDP HANDSHAKE (0x0N) lands here: the device rejecting something we sent.
+             * Used to be dropped without a trace.
+             */
+            printf("# %s unhandled HIDP transaction: 0x%02X\n", __FUNCTION__,
+                bt_hci_acl_pkt->sig_hdr.code);
             break;
     }
 }

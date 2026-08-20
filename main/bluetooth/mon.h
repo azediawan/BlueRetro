@@ -21,6 +21,7 @@
 #endif
 
 void bt_mon_init(void);
+void bt_mon_pause(void);
 void bt_mon_tx(uint16_t opcode, uint8_t *data, uint16_t len);
 void bt_mon_log(bool end, const char * format, ...);
 

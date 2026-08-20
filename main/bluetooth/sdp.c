@@ -314,5 +314,12 @@ void bt_sdp_hdlr(struct bt_dev *device, struct bt_hci_pkt *bt_hci_acl_pkt) {
             }
             break;
         }
+        default:
+            /* BT_SDP_ERROR_RSP lands here. Dropping it silently left the SDP
+             * continuation loop waiting forever with nothing in the log.
+             */
+            printf("# %s unhandled SDP op: 0x%02X\n", __FUNCTION__,
+                bt_hci_acl_pkt->sdp_hdr.op_code);
+            break;
     }
 }

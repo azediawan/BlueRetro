@@ -38,6 +38,12 @@ static int uart_port = UART_NUM_1;
 static struct bt_mon_hdr mon_hdr = {0};
 static uint32_t log_offset = 0;
 static char log_buffer[512];
+/* Tracing shares the memory card buffer, so it has to stand down while the config
+ * app writes to it. Kept out of config.global_cfg.banksel on purpose: poisoning
+ * banksel meant any later config_update() persisted the disabled state to NVS,
+ * silently killing debug mode until the user re-enabled it by hand.
+ */
+static bool mon_paused = false;
 
 void bt_mon_init(void) {
 #ifdef CONFIG_BLUERETRO_BT_H4_TRACE
@@ -72,6 +78,10 @@ void bt_mon_init(void) {
     config_debug_log();
 }
 
+void bt_mon_pause(void) {
+    mon_paused = true;
+}
+
 void IRAM_ATTR bt_mon_tx(uint16_t opcode, uint8_t *data, uint16_t len) {
 #ifdef CONFIG_BLUERETRO_BT_H4_TRACE
     mon_hdr.data_len = len + 4 + 5;
@@ -84,9 +94,18 @@ void IRAM_ATTR bt_mon_tx(uint16_t opcode, uint8_t *data, uint16_t len) {
     uart_write_bytes(uart_port, data, len);
 #else
     static uint32_t offset = 0;
-    if (config.global_cfg.banksel == CONFIG_BANKSEL_DBG && (offset + len) <= MC_BUFFER_SIZE) {
+    if (config.global_cfg.banksel == CONFIG_BANKSEL_DBG && !mon_paused) {
         uint32_t hdr_len = sizeof(struct bt_mon_hdr);
         uint8_t *hdr_data = (uint8_t *)&mon_hdr;
+
+        /* Wrap on frame boundary rather than stopping once full, so a long capture
+         * keeps the most recent events. Stopping dead meant a disconnect happening
+         * minutes in was never recorded.
+         */
+        if ((offset + hdr_len + len) > MC_BUFFER_SIZE) {
+            offset = 0;
+        }
+
         mon_hdr.data_len = len + 4 + 5;
         mon_hdr.opcode = opcode;
         mon_hdr.hdr_len = 5;
@@ -96,7 +115,10 @@ void IRAM_ATTR bt_mon_tx(uint16_t opcode, uint8_t *data, uint16_t len) {
         while (hdr_len) {
             uint32_t max_len = MC_BUFFER_BLOCK_SIZE - (offset % MC_BUFFER_BLOCK_SIZE);
             uint32_t write_len = (hdr_len > max_len) ? max_len : hdr_len;
-            mc_write(offset, hdr_data, hdr_len);
+            /* write_len, not hdr_len: mc_write() indexes one 4K block, a larger
+             * size memcpy past the end of that block's allocation.
+             */
+            mc_write(offset, hdr_data, write_len);
             offset += write_len;
             hdr_data += write_len;
             hdr_len -= write_len;
@@ -105,7 +127,7 @@ void IRAM_ATTR bt_mon_tx(uint16_t opcode, uint8_t *data, uint16_t len) {
         while (len) {
             uint32_t max_len = MC_BUFFER_BLOCK_SIZE - (offset % MC_BUFFER_BLOCK_SIZE);
             uint32_t write_len = (len > max_len) ? max_len : len;
-            mc_write(offset, data, len);
+            mc_write(offset, data, write_len);
             offset += write_len;
             data += write_len;
             len -= write_len;
