@@ -146,7 +146,12 @@ int32_t mc_init_mem(void) {
 int32_t mc_init(void) {
     int32_t ret = -1;
 
+    /* Trace capture owns the buffer when always-on, no virtual memory card. */
+#ifndef CONFIG_BLUERETRO_TRACE_ALWAYS
     if (config.global_cfg.banksel < CONFIG_BANKSEL_MAX) {
+#else
+    if (0) {
+#endif
         const esp_timer_create_args_t mc_timer_args = {
             .callback = &mc_store_cb,
             .arg = (void *)NULL,

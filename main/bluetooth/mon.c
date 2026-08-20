@@ -94,7 +94,11 @@ void IRAM_ATTR bt_mon_tx(uint16_t opcode, uint8_t *data, uint16_t len) {
     uart_write_bytes(uart_port, data, len);
 #else
     static uint32_t offset = 0;
+#ifdef CONFIG_BLUERETRO_TRACE_ALWAYS
+    if (!mon_paused) {
+#else
     if (config.global_cfg.banksel == CONFIG_BANKSEL_DBG && !mon_paused) {
+#endif
         uint32_t hdr_len = sizeof(struct bt_mon_hdr);
         uint8_t *hdr_data = (uint8_t *)&mon_hdr;
 
@@ -137,7 +141,7 @@ void IRAM_ATTR bt_mon_tx(uint16_t opcode, uint8_t *data, uint16_t len) {
 }
 
 void IRAM_ATTR bt_mon_log(bool end, const char * format, ...) {
-#ifndef CONFIG_BLUERETRO_BT_H4_TRACE
+#if !defined(CONFIG_BLUERETRO_BT_H4_TRACE) && !defined(CONFIG_BLUERETRO_TRACE_ALWAYS)
     if (config.global_cfg.banksel == CONFIG_BANKSEL_DBG)
 #endif
     {
