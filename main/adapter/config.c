@@ -48,8 +48,8 @@ struct hw_config hw_config = {
     .reset_pin_pulse_ms = 500,
     .sw_io0_hold_thres_ms = {1000, 3000, 6000},
     .ps_ctrl_colors = {
-        0xFF0000, /* Blue */
         0x0000FF, /* Red */
+        0xFF0000, /* Blue */
         0x00FF00, /* Green */
         0xFF00FF, /* Pink */
         0xFFFF00, /* Cyan */
