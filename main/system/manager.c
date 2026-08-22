@@ -196,7 +196,12 @@ static void port_led_pulse(uint32_t pin) {
 }
 
 static void set_leds_as_btn_status(uint8_t state) {
-    ledc_set_duty_and_update(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, hw_config.led_flash_on_duty_cycle, 0);
+    /* Only while held. Running this on release too left CHANNEL_1, which is also
+     * the "port connected" channel, parked at full brightness.
+     */
+    if (state) {
+        ledc_set_duty_and_update(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, hw_config.led_flash_on_duty_cycle, 0);
+    }
 
     /* Use all port LEDs */
     for (uint32_t i = 0; i < hw_config.port_cnt; i++) {
@@ -206,6 +211,13 @@ static void set_leds_as_btn_status(uint8_t state) {
         gpio_set_direction(pin, GPIO_MODE_OUTPUT);
         if (state) {
             esp_rom_gpio_connect_out_signal(pin, ledc_periph_signal[LEDC_LOW_SPEED_MODE].sig_out0_idx + LEDC_CHANNEL_1, 0, 0);
+        }
+        else {
+            /* Hand them back to the off channel so wired_port_hdl decides who
+             * lights up. Leaving them bound here is what made every blue LED read
+             * as "controller connected" after any button press.
+             */
+            set_port_led(i, 0);
         }
     }
 
@@ -271,6 +283,7 @@ static void wired_port_hdl(void) {
     uint32_t update = 0;
     uint16_t port_mask = 0;
     uint8_t err_led_set = 0;
+    uint8_t any_ready = 0;
 
     for (int32_t i = 0, j = 0, idx = 0; i < BT_MAX_DEV; i++) {
         struct bt_dev *device = NULL;
@@ -321,6 +334,10 @@ static void wired_port_hdl(void) {
             }
         }
 
+        if (bt_ready) {
+            any_ready = 1;
+        }
+
 #ifdef CONFIG_BLUERETRO_HW2
         if (device->ids.out_idx != prev_idx) {
             update++;
@@ -336,6 +353,20 @@ static void wired_port_hdl(void) {
         }
 #endif
     }
+    /* Red LED: search wins over everything, then connected goes quiet, then the
+     * idle heartbeat. Blink codes are set by whoever hit the error and are left
+     * alone here, they clear themselves on the next state change.
+     */
+    if (bt_hci_get_inquiry()) {
+        err_led_pattern(LED_PAT_SEARCH);
+    }
+    else if (any_ready) {
+        err_led_pattern(LED_PAT_OFF);
+    }
+    else {
+        err_led_pattern(LED_PAT_IDLE);
+    }
+
     if (hw_config.hotplug) {
         if (port_state != port_mask) {
             update++;
@@ -413,7 +444,8 @@ static void boot_btn_hdl(void) {
                     }
                     break;
                 case SYS_MGR_BTN_STATE2:
-                    bt_hci_start_inquiry();
+                    /* Button press is the user asking to pair: accept unknown devices. */
+                    bt_hci_start_pairing_inquiry();
                     break;
                 default:
                     sys_mgr_factory_reset();
@@ -481,7 +513,8 @@ static void sys_mgr_inquiry_toggle(void) {
         bt_hci_stop_inquiry();
     }
     else {
-        bt_hci_start_inquiry();
+        /* Button press is the user asking to pair: accept unknown devices. */
+        bt_hci_start_pairing_inquiry();
     }
 }
 
