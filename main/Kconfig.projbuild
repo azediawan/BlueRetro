@@ -260,6 +260,14 @@ menu "BlueRetro"
                 has no such window: the adapter only scans when its button is pressed.
                 Turn off to let the config app choose again.
 
+        config BLUERETRO_LOG_INPUT
+            bool "Echo controller input reports"
+            help
+                Print each input report as it arrives, on change only. Sits beside
+                the bridge rather than replacing it, unlike RAW_REPORT_DUMP, so the
+                controller keeps working while you watch. Answers whether a pad is
+                sending sane data without needing the console attached.
+
         config BLUERETRO_TRACE_ALWAYS
             bool "Always capture BT trace"
             help

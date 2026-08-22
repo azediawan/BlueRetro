@@ -37,6 +37,10 @@
 #define BT_TX 0
 #define BT_RX 1
 #define BT_FB_TASK_DELAY_CNT 30
+/* How much of an input report the debug build echoes. Long enough for any pad
+ * report worth eyeballing, short enough that the change buffer stays cheap.
+ */
+#define LOG_INPUT_MAX 32
 
 enum {
     /* BT CTRL flags */
@@ -728,6 +732,32 @@ void bt_host_bridge(struct bt_dev *device, uint8_t report_id, uint8_t *data, uin
     }
     printf("\n");
 #else
+#ifdef CONFIG_BLUERETRO_LOG_INPUT
+    /* Echo the report next to the bridge, never instead of it, so the controller
+     * keeps working while you watch. Placed before the bridge so reports it
+     * drops are visible too, which is exactly what you want when input is not
+     * getting through.
+     *
+     * Only on change: a pad streams at a couple hundred hertz and would bury
+     * everything else in the log. One line per press, one per release.
+     */
+    {
+        static uint8_t last[BT_MAX_DEV][LOG_INPUT_MAX];
+        static uint32_t last_len[BT_MAX_DEV];
+        uint32_t id = device->ids.id;
+        uint32_t n = (len > LOG_INPUT_MAX) ? LOG_INPUT_MAX : len;
+
+        if (id < BT_MAX_DEV && (n != last_len[id] || memcmp(last[id], data, n))) {
+            memcpy(last[id], data, n);
+            last_len[id] = n;
+            printf("+in dev=%lu id=0x%02X len=%lu ", id, report_id, len);
+            for (uint32_t i = 0; i < n; i++) {
+                printf("%02X", data[i]);
+            }
+            printf("\n");
+        }
+    }
+#endif
     if (device->ids.type == BT_HID_GENERIC) {
         struct hid_report *report = hid_parser_get_report(device->ids.id, report_id);
         if (report == NULL || report->type == REPORT_NONE) {

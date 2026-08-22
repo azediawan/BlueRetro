@@ -73,3 +73,8 @@ trace/
 tools/wiki/
 br_debug_trace*.bin
 *.btsnoop
+
+# Locais: dumps de flash, artefatos do CI e traces baixados
+backup/
+fw_full/
+trace*.bin
