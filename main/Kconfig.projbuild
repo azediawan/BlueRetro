@@ -250,6 +250,16 @@ menu "BlueRetro"
             help
                 Seclect this to enable verbose loggin into BT monitor.
 
+        config BLUERETRO_LOCK_INQUIRY_MANUAL
+            bool "Lock inquiry to manual"
+            default y
+            help
+                Ignore the Inquiry mode stored by the config app and never scan for
+                controllers on our own. Whoever scans wins the controller, so with two
+                adapters nearby either can grab one that belongs to the other. Manual
+                has no such window: the adapter only scans when its button is pressed.
+                Turn off to let the config app choose again.
+
         config BLUERETRO_TRACE_ALWAYS
             bool "Always capture BT trace"
             help
