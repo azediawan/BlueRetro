@@ -20,6 +20,7 @@
 #include "l2cap.h"
 #include "sdp.h"
 #include "att_cfg.h"
+#include "system/led.h"
 #include "att_hid.h"
 #include "smp.h"
 #include "tools/util.h"
@@ -336,6 +337,8 @@ static void bt_host_acl_hdlr(struct bt_hci_pkt *bt_hci_acl_pkt, uint32_t len) {
 
     if (device == NULL) {
         if (pkt->l2cap_hdr.cid == BT_L2CAP_CID_ATT) {
+            /* Config app is on the line. Cleared when that link drops. */
+            err_led_pattern(LED_PAT_MAINTENANCE);
             bt_att_cfg_hdlr(&bt_dev_conf, pkt, pkt_len);
         }
         else {

@@ -40,6 +40,42 @@ static const char bt_default_pin[][5] = {
     "1111",
 };
 
+/* Set while an inquiry started by the adapter button is running: that one is the
+ * user explicitly asking to pair something, so unknown devices are welcome.
+ */
+static bool inquiry_pairing_mode = false;
+
+/* Automatic inquiry is off in firmware, whatever the config app has stored.
+ *
+ * Whoever scans the air wins the controller: the inquiry result handler connects
+ * to anything matching the class filter, without consulting the stored link keys.
+ * With two adapters in the same room that means either one can grab a controller
+ * that belongs to the other, and the user has no say in which. Manual has no such
+ * window because no adapter scans on its own.
+ *
+ * Returning false here lands on exactly the same code path as a config set to
+ * INQ_MANUAL, so this adds no untested branch. Flip it back to reading the config
+ * if automatic inquiry is ever wanted again.
+ */
+static inline bool bt_hci_inquiry_is_auto(void) {
+#ifdef CONFIG_BLUERETRO_LOCK_INQUIRY_MANUAL
+    return false;
+#else
+    return (config.global_cfg.inquiry_mode == INQ_AUTO);
+#endif
+}
+
+/* Second layer, and the one that survives if automatic inquiry ever comes back:
+ * only answer for a device this adapter has already paired with. The link key
+ * store is the allowlist, no need to ask the other adapter anything.
+ */
+static inline bool bt_hci_bdaddr_is_ours(const uint8_t *bdaddr) {
+    struct bt_hci_cp_link_key_reply probe = {0};
+
+    memcpy((void *)&probe.bdaddr, bdaddr, sizeof(probe.bdaddr));
+    return (bt_host_load_link_key(&probe) == 0);
+}
+
 static const struct bt_hci_cp_set_event_filter clr_evt_filter = {
     .filter_type = BT_BREDR_FILTER_TYPE_CLEAR,
 };
@@ -1041,7 +1077,7 @@ static void bt_hci_le_meta_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
                     }
                     else {
                         bt_host_reset_dev(device);
-                        if (config.global_cfg.inquiry_mode == INQ_AUTO && bt_host_get_active_dev(&device) == BT_NONE) {
+                        if (bt_hci_inquiry_is_auto() && bt_host_get_active_dev(&device) == BT_NONE) {
                             bt_hci_start_inquiry();;
                         }
                         else {
@@ -1188,7 +1224,7 @@ skip:
 }
 
 static void bt_hci_start_inquiry_cfg_check(void *cp) {
-    if (config.global_cfg.inquiry_mode == INQ_AUTO) {
+    if (bt_hci_inquiry_is_auto()) {
         bt_hci_start_inquiry();
     }
     else {
@@ -1276,7 +1312,13 @@ void bt_hci_start_inquiry(void) {
     }
 }
 
+void bt_hci_start_pairing_inquiry(void) {
+    inquiry_pairing_mode = true;
+    bt_hci_start_inquiry();
+}
+
 void bt_hci_stop_inquiry(void) {
+    inquiry_pairing_mode = false;
     bt_hci_cmd_exit_periodic_inquiry(NULL);
     bt_hci_cmd_le_set_scan_enable(0);
     bt_hci_cmd_le_set_scan_param_passive();
@@ -1380,6 +1422,10 @@ void bt_hci_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
             for (uint8_t i = 1; i <= inquiry_result->num_reports; i++) {
                 bt_host_get_dev_from_bdaddr((uint8_t *)inquiry_result + 1, &device);
                 if (device == NULL) {
+                    if (!inquiry_pairing_mode && !bt_hci_bdaddr_is_ours((uint8_t *)inquiry_result + 1)) {
+                        printf("# Inquiry: skipping unknown bdaddr, not in pairing mode\n");
+                        break;
+                    }
                     (void)bt_host_get_new_dev(&device);
                     if (device) {
                         bt_host_reset_dev(device);
@@ -1414,7 +1460,7 @@ void bt_hci_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
                     }
                     else {
                         bt_host_reset_dev(device);
-                        if (config.global_cfg.inquiry_mode == INQ_AUTO && bt_host_get_active_dev(&device) == BT_NONE) {
+                        if (bt_hci_inquiry_is_auto() && bt_host_get_active_dev(&device) == BT_NONE) {
                             bt_hci_start_inquiry();
                         }
                     }
@@ -1425,6 +1471,7 @@ void bt_hci_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
                     device->pkt_retry = 0;
                     printf("dev: %ld acl_handle: 0x%04X\n", device->ids.id, device->acl_handle);
                     bt_mon_log(true, "dev: %ld acl_handle: 0x%04X\n", device->ids.id, device->acl_handle);
+                    err_led_pattern(LED_PAT_CONNECTING);
                     bt_hci_cmd_le_set_adv_disable(NULL);
                     bt_hci_cmd_remote_name_request(device->remote_bdaddr);
                 }
@@ -1466,9 +1513,16 @@ void bt_hci_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
             bt_host_get_dev_from_handle(disconn_complete->handle, &device);
             if (device) {
                 printf("# DISCONN from dev: %ld\n", device->ids.id);
+                /* Only an unexpected drop earns a code. A controller being switched
+                 * off reports power off or remote terminated, and that is not
+                 * something the LED needs to complain about.
+                 */
+                if (disconn_complete->reason == BT_HCI_ERR_CONN_TIMEOUT) {
+                    err_led_pattern(LED_PAT_CODE_LINK_LOST);
+                }
                 bt_host_reset_dev(device);
                 if (bt_host_get_active_dev(&device) == BT_NONE) {
-                    if (config.global_cfg.inquiry_mode == INQ_AUTO) {
+                    if (bt_hci_inquiry_is_auto()) {
                         bt_hci_start_inquiry();
                     }
                     bt_hci_cmd_le_set_adv_enable(NULL);
@@ -1486,7 +1540,9 @@ void bt_hci_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
                     }
                 }
                 else {
+                    /* No device slot means this was the config app's link. */
                     printf("# DISCONN for non existing device handle: %04X\n", disconn_complete->handle);
+                    err_led_pattern(LED_PAT_OFF);
                 }
             }
             break;
@@ -1499,6 +1555,7 @@ void bt_hci_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
             if (device) {
                 if (auth_complete->status) {
                     printf("# dev: %ld error: 0x%02X\n", device->ids.id, auth_complete->status);
+                    err_led_pattern(LED_PAT_CODE_PAIR_FAILED);
                 }
                 else {
                     printf("# dev: %ld Pairing done\n", device->ids.id);
@@ -1535,7 +1592,7 @@ void bt_hci_evt_hdlr(struct bt_hci_pkt *bt_hci_evt_pkt) {
                     }
                     else {
                         bt_host_reset_dev(device);
-                        if (config.global_cfg.inquiry_mode == INQ_AUTO && bt_host_get_active_dev(&device) == BT_NONE) {
+                        if (bt_hci_inquiry_is_auto() && bt_host_get_active_dev(&device) == BT_NONE) {
                             bt_hci_start_inquiry();
                         }
                     }

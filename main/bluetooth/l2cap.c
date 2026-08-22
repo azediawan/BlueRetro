@@ -8,6 +8,7 @@
 #include "hci.h"
 #include "l2cap.h"
 #include "sdp.h"
+#include "system/led.h"
 
 #define BT_HOST_SDP_RX_CHAN   0x0060
 #define BT_HOST_SDP_TX_CHAN   0x0070
@@ -239,6 +240,7 @@ void bt_l2cap_sig_hdlr(struct bt_dev *device, struct bt_hci_pkt *bt_hci_acl_pkt)
             else {
                 printf("# dev: %ld conn refused scid: 0x%04X result: 0x%04X status: 0x%04X\n",
                     device->ids.id, conn_rsp->scid, conn_rsp->result, conn_rsp->status);
+                err_led_pattern(LED_PAT_CODE_HID_REFUSED);
             }
             break;
         }
