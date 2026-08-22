@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Decode a br_debug_trace.bin captured by BlueRetro's debug mode.
 
+Usable two ways: the window imports decode(), or run it directly with
+    python -m tools.brmon.trace <arquivo.bin>
+
 Standalone: no bluez, no socat, no Wireshark. Prints the SYS_NOTE log lines
 and dissects HCI / L2CAP / HIDP inline. -w still emits a .btsnoop file for
 Wireshark if you happen to have it.
@@ -154,6 +157,59 @@ def dis_hidp(payload, chan):
     if not body:
         return head
     return head + '  ' + body[:24].hex() + ('...' if len(body) > 24 else '')
+
+
+def decode(path):
+    """Trace file to (linhas, resumo). What the window shows, no printing."""
+    data = open(path, 'rb').read()
+    psm_by_cid = {}
+    for dev in range(4):
+        psm_by_cid.update({dev | 0x60: 'SDP_RX', dev | 0x70: 'SDP_TX',
+                           dev | 0x80: 'HID_CTRL', dev | 0x90: 'HID_INTR'})
+    reasm, out, counts = {}, [], {}
+
+    for opcode, ts, payload in frames(data):
+        counts[opcode] = counts.get(opcode, 0) + 1
+        t = f'[{ts / 1e6:9.3f}]'
+        if opcode == SYS_NOTE:
+            out.append((ts, 'NOTE', txt(payload).rstrip()))
+        elif opcode == EVT and payload:
+            if payload[0] == 0x13:
+                continue
+            out.append((ts, 'EVT', dis_evt(payload)))
+        elif opcode == CMD and len(payload) >= 3:
+            op, plen = struct.unpack_from('<HB', payload, 0)
+            out.append((ts, 'CMD', f'opcode=0x{op:04X} ' + payload[3:3 + plen].hex()))
+        elif opcode in (ACL_TX, ACL_RX) and len(payload) >= 4:
+            hf = struct.unpack_from('<H', payload, 0)[0]
+            handle, pb = hf & 0x0FFF, (hf >> 12) & 0x3
+            arrow = '-->' if opcode == ACL_TX else '<--'
+            key = (handle, opcode)
+            buf = payload[4:] if pb != 1 else reasm.get(key, b'') + payload[4:]
+            if len(buf) < 4:
+                reasm[key] = buf
+                continue
+            l2len, cid = struct.unpack_from('<HH', buf, 0)
+            if len(buf) - 4 < l2len:
+                reasm[key] = buf
+                continue
+            reasm[key] = b''
+            body = buf[4:4 + l2len]
+            if cid == 0x0001:
+                out.append((ts, f'L2CAP{arrow}', dis_sig(body, psm_by_cid)))
+            elif cid in FIXED_CID:
+                out.append((ts, f'{FIXED_CID[cid]}{arrow}', f'op=0x{body[0]:02X} len={len(body)}'))
+            else:
+                chan = psm_by_cid.get(cid, f'cid=0x{cid:04X}')
+                if chan.startswith('SDP'):
+                    out.append((ts, f'SDP{arrow}', f'pdu=0x{body[0]:02X} len={len(body)}'))
+                else:
+                    out.append((ts, f'HIDP{arrow}', dis_hidp(body, chan)))
+
+    total = sum(counts.values())
+    resumo = (f'{len(data)} bytes, {total} quadros: '
+              + ', '.join(f'{NAMES[k]}={v}' for k, v in sorted(counts.items()))) if total else              'TRACE VAZIO: o modo debug nao estava ativo, ou o adaptador perdeu energia depois.'
+    return out, resumo
 
 
 def main():
